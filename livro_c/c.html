@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Livro: Monitor de Processos em C</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            margin: 20px;
+            background-color: #f4f4f4;
+        }
+        h1, h2, h3 {
+            color: #333;
+        }
+        code {
+            background-color: #e8e8e8;
+            padding: 2px 5px;
+            border-radius: 5px;
+            color: #d63384;
+        }
+        pre {
+            background-color: #272822;
+            color: #f8f8f2;
+            padding: 10px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }
+        .section {
+            margin-bottom: 30px;
+        }
+    </style>
+</head>
+<body>
+
+<h1>Monitor de Processos em C</h1>
+
+<p>Este livro explica cada detalhe do código C para monitoramento de processos, abordando as bibliotecas, funções, macros e conceitos da linguagem C.</p>
+
+<h2 class="section">1. Bibliotecas Incluídas</h2>
+<p>O código utiliza várias bibliotecas importantes que fornecem funcionalidades específicas:</p>
+
+<ul>
+    <li><code>#include &lt;stdio.h&gt;</code>: Biblioteca padrão de entrada e saída (ex: <code>printf</code>).</li>
+    <li><code>#include &lt;stdlib.h&gt;</code>: Oferece funções utilitárias como alocação de memória e conversões.</li>
+    <li><code>#include &lt;string.h&gt;</code>: Fornece funções para manipulação de strings (ex: <code>strcpy</code>, <code>strcmp</code>).</li>
+    <li><code>#include &lt;dirent.h&gt;</code>: Fornece funções para manipulação de diretórios (ex: leitura do conteúdo de <code>/proc</code>).</li>
+    <li><code>#include &lt;unistd.h&gt;</code>: Define chamadas ao sistema POSIX como <code>sleep</code> e <code>getpid</code>.</li>
+    <li><code>#include &lt;sys/sysinfo.h&gt;</code>: Contém funções para obter informações do sistema (ex: uso de RAM).</li>
+    <li><code>#include &lt;sys/statvfs.h&gt;</code>: Fornece funções para obter estatísticas sobre o sistema de arquivos (ex: uso de disco).</li>
+    <li><code>#include &lt;pwd.h&gt;</code>: Fornece funções para obter informações sobre usuários do sistema, como UID para nome de usuário.</li>
+    <li><code>#include &lt;time.h&gt;</code>: Utilizada para manipulação de tempo e data (ex: atrasos).</li>
+    <li><code>#include &lt;sys/stat.h&gt;</code>: Fornece funções para obter informações sobre arquivos e processos (ex: dono do processo).</li>
+</ul>
+
+<h2 class="section">2. Macros de Cor</h2>
+<p>As macros <code>GRN</code>, <code>RED</code> e <code>RST</code> são definidas para adicionar cores ao terminal:</p>
+
+<pre><code>#define GRN "\\033[1;32m"
+#define RED "\\033[1;31m"
+#define RST "\\033[0m"</code></pre>
+
+<p>Essas macros usam códigos ANSI para imprimir texto colorido no terminal.</p>
+
+<h2 class="section">3. Função <code>banner</code></h2>
+<p>A função <code>banner</code> imprime um cabeçalho decorativo no terminal. Ela recebe dois argumentos de string que representam títulos personalizados:</p>
+
+<pre><code>void banner(const char *c1, const char *c2) {
+    printf("%s\\n", c1);
+    printf("    ▄▄▄              ▪\\n");
+    printf("    ▀▄ █·▪     ▪    ▄██\\n");
+    printf("    ▐▀▀▄  ▄█▀▄  ▄█▀▄ ▐█·\\n");
+    printf("    ▐█•█▌▐█▌.▐▌▐█▌.▐▌▐█▌\\n");
+    printf("    .▀  ▀ ▀█▄▀▪ ▀█▄▀▪▀▀▀\\n");
+    printf("\\n       Monitor%s\\n", c2);
+}</code></pre>
+
+<p>O banner é impresso no início da execução do programa, embelezando a saída do terminal com símbolos ASCII e cores.</p>
+
+<h2 class="section">4. Função <code>get_ram_usage</code></h2>
+<p>Esta função utiliza <code>sysinfo</code> para obter a quantidade de RAM usada e disponível no sistema. Ela converte os valores de bytes para MB:</p>
+
+<pre><code>void get_ram_usage(long *used, long *total) {
+    struct sysinfo info;
+    sysinfo(&info);
+
+    *total = info.totalram / 1024 / 1024;
+    *used = (info.totalram - info.freeram) / 1024 / 1024;
+}</code></pre>
+
+<p>A função popula os valores de <code>used</code> e <code>total</code> com a quantidade de memória RAM em uso e total disponível, respectivamente.</p>
+
+<h2 class="section">5. Função <code>get_disk_usage</code></h2>
+<p>A função <code>get_disk_usage</code> usa <code>statvfs</code> para obter o uso de disco em termos de total, usado e livre em GB:</p>
+
+<pre><code>void get_disk_usage(double *used, double *free, double *total) {
+    struct statvfs stat;
+    statvfs("/", &stat);
+
+    *total = (double)stat.f_blocks * stat.f_frsize / 1024 / 1024 / 1024;
+    *free = (double)stat.f_bfree * stat.f_frsize / 1024 / 1024 / 1024;
+    *used = *total - *free;
+}</code></pre>
+
+<p>Essa função faz os cálculos com base nos blocos de disco e no tamanho dos blocos para determinar o uso de disco.</p>
+
+<h2 class="section">6. Função <code>get_cpu_usage</code></h2>
+<p>Essa função lê os dados de <code>/proc/stat</code> para calcular a porcentagem de uso de CPU:</p>
+
+<pre><code>double get_cpu_usage() {
+    long double a[4], b[4];
+    FILE *fp;
+    double cpu_usage = 0.0;
+
+    fp = fopen("/proc/stat", "r");
+    fscanf(fp, "cpu %Lf %Lf %Lf %Lf", &a[0], &a[1], &a[2], &a[3]);
+    fclose(fp);
+
+    sleep(1);
+
+    fp = fopen("/proc/stat", "r");
+    fscanf(fp, "cpu %Lf %Lf %Lf %Lf", &b[0], &b[1], &b[2], &b[3]);
+    fclose(fp);
+
+    long double total_a = a[0] + a[1] + a[2] + a[3];
+    long double total_b = b[0] + b[1] + b[2] + b[3];
+
+    cpu_usage = ((b[0] + b[1] + b[2]) - (a[0] + a[1] + a[2])) / (total_b - total_a) * 100.0;
+
+    return cpu_usage;
+}</code></pre>
+
+<p>A função calcula a diferença nas leituras de CPU para calcular a porcentagem de uso entre duas amostras separadas por 1 segundo.</p>
+
+<h2 class="section">7. Função <code>get_username</code></h2>
+<p>Essa função usa a função <code>getpwuid</code> para mapear um UID (User ID) para o nome do usuário correspondente:</p>
+
+<pre><code>char *get_username(uid_t uid) {
+    struct passwd *pwd = getpwuid(uid);
+    return (pwd != NULL) ? pwd->pw_name : "Desconhecido";
+}</code></pre>
+
+<h2 class="section">8. Função <code>get_process_cpu_usage</code></h2>
+<p>Essa função monitora o uso de CPU por processo específico:</p>
+
+<pre><code>double get_process_cpu_usage(int pid) {
+    char path[256];
+    FILE *fp;
+    long double a[4], b[4];
+    double cpu_usage = 0.0;
+
+    snprintf(path, sizeof(path), "/proc/%d/stat", pid);
+    fp = fopen(path, "r");
+    fscanf(fp, "%*d %*s %*c %*d %*d %*d %*d %*d %*d %Lf %Lf%Lf %Lf", &a[0], &a[1], &a[2], &a[3]);
+    fclose(fp);
+
+    sleep(1);
+
+    fp = fopen(path, "r");
+    fscanf(fp, "%*d %*s %*c %*d %*d %*d %*d %*d %*d %Lf %Lf %Lf %Lf", &b[0], &b[1], &b[2], &b[3]);
+    fclose(fp);
+
+    long double total_a = a[0] + a[1] + a[2] + a[3];
+    long double total_b = b[0] + b[1] + b[2] + b[3];
+
+    cpu_usage = ((b[0] + b[1] + b[2]) - (a[0] + a[1] + a[2])) / (total_b - total_a) * 100.0;
+
+    return cpu_usage;
+}</code></pre>
+
+<p>Essa função coleta informações sobre o uso da CPU para um processo específico ao acessar o arquivo <code>/proc/[pid]/stat</code>. Ela lê duas amostras separadas por 1 segundo para calcular a diferença na utilização da CPU.</p>
+
+<h2 class="section">9. Função <code>get_process_memory_usage</code></h2>
+<p>A função <code>get_process_memory_usage</code> lê o arquivo <code>/proc/[pid]/status</code> para obter o uso de memória física (RSS) de um processo específico:</p>
+
+<pre><code>long get_process_memory_usage(int pid) {
+    char path[256];
+    snprintf(path, sizeof(path), "/proc/%d/status", pid);
+    FILE *fp = fopen(path, "r");
+    if (!fp) {
+        return -1;
+    }
+    char buffer[256];
+    long memory_usage = -1;
+    while (fgets(buffer, sizeof(buffer), fp)) {
+        if (strncmp(buffer, "VmRSS:", 6) == 0) {
+            sscanf(buffer + 6, "%ld", &memory_usage);
+            memory_usage /= 1024; // Convert KB to MB
+            break;
+        }
+    }
+    fclose(fp);
+    return memory_usage;
+}</code></pre>
+
+<p>Esta função lê o arquivo de status do processo e busca pela linha que começa com <code>VmRSS</code>, que indica o uso de memória física do processo em questão. O valor lido é convertido de kilobytes para megabytes.</p>
+
+<h2 class="section">10. Função <code>monitor_pids</code></h2>
+<p>A função <code>monitor_pids</code> monitora o status de uma lista de processos e exibe as informações detalhadas de uso de CPU e memória. Esta função é onde o monitoramento real ocorre:</p>
+
+<pre><code>void monitor_pids(int *pids, int num_pids) {
+    for (int i = 0; i < num_pids; i++) {
+        int pid = pids[i];
+        char process_status[256];
+        sprintf(process_status, "/proc/%d/status", pid);
+
+        // Verificar se o processo está rodando
+        if (access(process_status, F_OK) == 0) {
+            double cpu_usage = get_process_cpu_usage(pid);
+            long memory_usage = get_process_memory_usage(pid);
+            printf("PID: %d, CPU: %.2f%%, RAM: %ld MB\n", pid, cpu_usage, memory_usage);
+        } else {
+            printf("PID: %d está off.\n", pid);
+        }
+    }
+}</code></pre>
+
+<p>Essa função percorre todos os PIDs fornecidos, verificando se o processo ainda está ativo. Se o processo estiver rodando, ele coleta e exibe o uso de CPU e memória. Caso contrário, exibe que o processo está "off".</p>
+
+<h2 class="section">11. Função <code>main</code></h2>
+<p>Finalmente, a função principal do programa, <code>main</code>, controla o fluxo principal do monitoramento de processos:</p>
+
+<pre><code>int main(int argc, char *argv[]) {
+    if (argc < 2) {
+        fprintf(stderr, "Uso: %s [PID1] [PID2] ... [PIDN]\\n", argv[0]);
+        return 1;
+    }
+
+    // Convertendo argumentos para PIDs
+    int pids[argc - 1];
+    for (int i = 1; i < argc; i++) {
+        pids[i - 1] = atoi(argv[i]);
+    }
+
+    // Loop infinito de monitoramento
+    while (1) {
+        banner("Monitor de Processos", "CPU e RAM");
+        monitor_pids(pids, argc - 1);
+        sleep(2); // Atraso de 2 segundos entre as atualizações
+        printf("\033[H\033[J"); // Limpar o terminal
+    }
+
+    return 0;
+}</code></pre>
+
+<p>A função <code>main</code> faz a conversão dos argumentos da linha de comando para uma lista de PIDs e inicia o loop infinito de monitoramento. Ela chama as funções de monitoramento e exibe os resultados a cada 2 segundos. O comando <code>printf("\\033[H\\033[J")</code> limpa o terminal para que as atualizações sejam exibidas de forma limpa.</p>
+
+<h2 class="section">Conclusão</h2>
+<p>Este livro descreve como cada parte do código contribui para monitorar processos em um sistema Linux. Desde a coleta de dados do sistema de arquivos <code>/proc</code>, até o cálculo do uso de CPU e RAM, o código implementa um monitor de recursos eficaz que pode ser expandido para incluir mais funcionalidades.</p>
+
+<p>Este código serve como uma base para a criação de monitores mais complexos e pode ser adaptado para se adequar a diferentes cenários de monitoramento de processos em sistemas Unix-like.</p>
+
+</body>
+</html>
